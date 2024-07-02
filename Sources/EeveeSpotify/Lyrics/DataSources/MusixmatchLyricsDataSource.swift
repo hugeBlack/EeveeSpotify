@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 struct MusixmatchLyricsDataSource {
     
@@ -14,7 +15,9 @@ struct MusixmatchLyricsDataSource {
         var finalQuery = query
 
         finalQuery["usertoken"] = UserDefaults.musixmatchToken
-        finalQuery["app_id"] = "mac-ios-v2.0"
+        finalQuery["app_id"] = UIDevice.current.isIpad
+            ? "mac-ios-ipad-v1.0"
+            : "mac-ios-v2.0"
 
         let queryString = finalQuery.queryString.addingPercentEncoding(
             withAllowedCharacters: .urlHostAllowed
@@ -65,32 +68,57 @@ struct MusixmatchLyricsDataSource {
         else {
             throw LyricsError.DecodingError
         }
-        
-        if let header = message["header"] as? [String: Any],
-           header["status_code"] as? Int == 401 {
+
+        if let header = message["header"] as? [String: Any], 
+            header["status_code"] as? Int == 401 {
             throw LyricsError.InvalidMusixmatchToken
         }
 
         if let trackSubtitlesGet = macroCalls["track.subtitles.get"] as? [String: Any],
-            let subtitlesMessage = trackSubtitlesGet["message"] as? [String: Any],
-            let subtitlesBody = subtitlesMessage["body"] as? [String: Any],
-            let subtitlesList = subtitlesBody["subtitle_list"] as? [Any],
-            let firstSubtitle = subtitlesList.first as? [String: Any],
-            let subtitle = firstSubtitle["subtitle"] as? [String: Any],
-            let subtitleBody = subtitle["subtitle_body"] as? String {
-                return PlainLyrics(content: subtitleBody, timeSynced: true)
+           let subtitlesMessage = trackSubtitlesGet["message"] as? [String: Any],
+           let subtitlesHeader = subtitlesMessage["header"] as? [String: Any],
+           let subtitlesStatusCode = subtitlesHeader["status_code"] as? Int {
+            
+            if subtitlesStatusCode == 404 {
+                throw LyricsError.NoSuchSong
+            }
+            
+            if let subtitlesBody = subtitlesMessage["body"] as? [String: Any],
+               let subtitleList = subtitlesBody["subtitle_list"] as? [[String: Any]],
+               let firstSubtitle = subtitleList.first,
+               let subtitle = firstSubtitle["subtitle"] as? [String: Any] {
+                
+                if let restricted = subtitle["restricted"] as? Bool, restricted {
+                    throw LyricsError.MusixmatchRestricted
+                }
+                
+                if let subtitleBody = subtitle["subtitle_body"] as? String {
+                    return PlainLyrics(content: subtitleBody, timeSynced: true)
+                }
+            }
         }
 
-        guard 
-            let trackLyricsGet = macroCalls["track.lyrics.get"] as? [String: Any],
-            let lyricsMessage = trackLyricsGet["message"] as? [String: Any],
-            let lyricsBody = lyricsMessage["body"] as? [String: Any],
-            let lyrics = lyricsBody["lyrics"] as? [String: Any],
-            let plainLyrics = lyrics["lyrics_body"] as? String
-        else {
-            throw LyricsError.DecodingError
+        if let trackLyricsGet = macroCalls["track.lyrics.get"] as? [String: Any],
+           let lyricsMessage = trackLyricsGet["message"] as? [String: Any],
+           let lyricsHeader = lyricsMessage["header"] as? [String: Any],
+           let lyricsStatusCode = lyricsHeader["status_code"] as? Int {
+            
+            if lyricsStatusCode == 404 {
+                throw LyricsError.NoSuchSong
+            }
+            
+            if let lyricsBody = lyricsMessage["body"] as? [String: Any],
+               let lyrics = lyricsBody["lyrics"] as? [String: Any],
+               let plainLyrics = lyrics["lyrics_body"] as? String {
+                
+                if let restricted = lyrics["restricted"] as? Bool, restricted {
+                    throw LyricsError.MusixmatchRestricted
+                }
+                
+                return PlainLyrics(content: plainLyrics, timeSynced: false)
+            }
         }
 
-        return PlainLyrics(content: plainLyrics, timeSynced: false)
+        throw LyricsError.DecodingError
     }
 }

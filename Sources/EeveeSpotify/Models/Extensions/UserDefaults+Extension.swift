@@ -7,10 +7,12 @@ extension UserDefaults {
     private static let lyricsSourceKey = "lyricsSource"
     private static let musixmatchTokenKey = "musixmatchToken"
     private static let geniusFallbackKey = "geniusFallback"
+    private static let fallbackReasonsKey = "fallbackReasons"
     private static let darkPopUpsKey = "darkPopUps"
     private static let patchTypeKey = "patchType"
     private static let overwriteConfigurationKey = "overwriteConfiguration"
     private static let neteaseShowTranslationKey = "neteaseShowTranslation"
+    private static let lyricsColorsKey = "lyricsColors"
 
     static var lyricsSource: LyricsSource {
         get {
@@ -45,6 +47,15 @@ extension UserDefaults {
         }
         set (fallback) {
             defaults.set(fallback, forKey: geniusFallbackKey)
+        }
+    }
+    
+    static var fallbackReasons: Bool {
+        get {
+            defaults.object(forKey: fallbackReasonsKey) as? Bool ?? true
+        }
+        set (reasons) {
+            defaults.set(reasons, forKey: fallbackReasonsKey)
         }
     }
 
@@ -85,6 +96,24 @@ extension UserDefaults {
         }
         set (neteaseShowTranslation) {
             defaults.set(neteaseShowTranslation, forKey: neteaseShowTranslationKey)
+        }
+    }
+    
+    static var lyricsColors: LyricsColorsSettings {
+        get {
+            if let data = defaults.object(forKey: lyricsColorsKey) as? Data {
+                return try! JSONDecoder().decode(LyricsColorsSettings.self, from: data)
+            }
+            
+            return LyricsColorsSettings(
+                displayOriginalColors: true,
+                useStaticColor: false,
+                staticColor: "",
+                normalizationFactor: 0.5
+            )
+        }
+        set (lyricsColors) {
+            defaults.set(try! JSONEncoder().encode(lyricsColors), forKey: lyricsColorsKey)
         }
     }
 }

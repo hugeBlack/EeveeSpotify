@@ -11,7 +11,7 @@ func exitApplication() {
 
 struct EeveeSpotify: Tweak {
     
-    static let version = "4.1"
+    static let version = "4.3"
     
     init() {
 
@@ -38,12 +38,9 @@ struct EeveeSpotify: Tweak {
             switch UserDefaults.patchType {
             
             case .disabled:
-                
                 NSLog("[EeveeSpotify] Not activating: patchType is disabled")
-                return
             
             case .offlineBnk:
-                
                 do {
                     try OfflineHelper.restoreFromEeveeBnk()
                     
@@ -70,6 +67,10 @@ struct EeveeSpotify: Tweak {
                         buttonText: "OK"
                     )
                 }
+            
+            case .notSet:
+                NSLog("[EeveeSpotify] Patching method not set, resetting offline.bnk")
+                try? OfflineHelper.resetOfflineBnk()
             
             default:
                 break
