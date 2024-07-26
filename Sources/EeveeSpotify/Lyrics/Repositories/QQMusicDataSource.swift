@@ -34,7 +34,7 @@ struct QQMusicLyric {
     }
 }
 
-class QQMusicDataSource {
+class QQMusicDataSource: LyricsRepository {
     private let searchUrl = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?format=json&p=1&cr=1&g_tk=5381&t=0"
     private let lyricUrl = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?g_tk=5381&loginUin=0&hostUin=0&inCharset=utf8&outCharset=utf8&notice=0&platform=yqq&needNewCode=0&format=json&songmid="
     
@@ -186,14 +186,11 @@ class QQMusicDataSource {
     }
     
     
-    static func parseLyrics(_ plain: PlainLyrics) -> [LyricsLine] {
-        var lyricLines: [LyricsLine] = []
+    private func parseLyrics(_ plain: PlainLyrics) -> [LyricsLineDto] {
+        var lyricLines: [LyricsLineDto] = []
         // 检测纯音乐
         if plain.content == "[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏" {
-            lyricLines.append(LyricsLine.with {
-                $0.offsetMs = 0
-                $0.content = "此歌曲为没有填词的纯音乐，请您欣赏"
-            })
+            lyricLines.append(LyricsLineDto(content: "此歌曲为没有填词的纯音乐，请您欣赏", offsetMs: 0))
             return lyricLines
         }
 
@@ -208,18 +205,17 @@ class QQMusicDataSource {
         
         // 检查是不是真的timeSynced
         var realSynced = true
-        if plain.timeSynced {
-            let match0 = plain.content.firstMatch(
-                "\\[(?<minute>\\d{2}):(?<seconds>\\d{2}\\.?\\d*).{0,2}\\] ?(?<content>.*)"
-            )
-            if match0 == nil {
-                realSynced = false
-            }
+        let match0 = plain.content.firstMatch(
+            "\\[(?<minute>\\d{2}):(?<seconds>\\d{2}\\.?\\d*).{0,2}\\] ?(?<content>.*)"
+        )
+        if match0 == nil {
+            realSynced = false
         }
         
-        if plain.timeSynced && realSynced {
+        
+        if realSynced {
             // 解决QQ音乐翻译和原文轴对不上的问题
-            var translationLines = [LyricsLine]()
+            var translationLines = [LyricsLineDto]()
             if UserDefaults.neteaseShowTranslation, let translation = plain.translation {
                 var translateLines = translation
                     .components(separatedBy: "\n")
@@ -252,12 +248,9 @@ class QQMusicDataSource {
                     let seconds = Float(captures["seconds"]!)!
                     let content = captures["content"]!.htmlDecoded()
                     
-                    let offset = Int32(minute * 60 * 1000 + Int(seconds * 1000))
+                    let offset = minute * 60 * 1000 + Int(seconds * 1000)
                     
-                    translationLines.append(LyricsLine.with {
-                        $0.offsetMs = offset
-                        $0.content = content
-                    })
+                    translationLines.append(LyricsLineDto(content: content, offsetMs: offset))
                     
                 }
 
@@ -288,18 +281,15 @@ class QQMusicDataSource {
                 let seconds = Float(captures["seconds"]!)!
                 let content = captures["content"]!.htmlDecoded()
                 
-                let offset = Int32(minute * 60 * 1000 + Int(seconds * 1000))
+                let offset = minute * 60 * 1000 + Int(seconds * 1000)
                 
-                lyricLines.append(LyricsLine.with {
-                    $0.offsetMs = offset
-                    $0.content = content
-                })
+                lyricLines.append(LyricsLineDto(content: content, offsetMs: offset))
             }
             
             
-            lyricLines.sort(by: { $0.offsetMs < $1.offsetMs})
+            lyricLines.sort(by: { $0.offsetMs! < $1.offsetMs!})
             if UserDefaults.neteaseShowTranslation {
-                translationLines.sort(by: { $0.offsetMs < $1.offsetMs})
+                translationLines.sort(by: { $0.offsetMs! < $1.offsetMs!})
                 
                 // 对轴,在线性时间内完成
                 var j = 0
@@ -333,8 +323,20 @@ class QQMusicDataSource {
         }
 
         lyricLines = lines.map { line in
-            LyricsLine.with { $0.content = line }
+            LyricsLineDto(content: line)
         }
         return lyricLines
+    }
+    
+    func getLyrics(_ query: LyricsSearchQuery, options: LyricsOptions) throws -> LyricsDto {
+        let strippedTitle = query.title.strippedTrackTitle
+        
+        let song = try getSong(title: strippedTitle, artistsString: query.artist, duration: query.duration)
+        let lyric = try getLyric(song)
+
+        let plain = PlainLyrics(content: lyric.lyric, translation: lyric.trans)
+        let parsedLyrics = parseLyrics(plain)
+        
+        return LyricsDto(lines: parsedLyrics, timeSynced: true, romanization: .original)
     }
 }

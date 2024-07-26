@@ -135,11 +135,16 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
     }
     
     //
+    let metadata = track.metadata()
+    let duration = Int(metadata["duration"]!)!
+
     
     let searchQuery = LyricsSearchQuery(
         title: track.trackTitle(),
         primaryArtist: track.artistTitle(),
-        spotifyTrackId: track.URI().spt_trackIdentifier()
+        spotifyTrackId: track.URI().spt_trackIdentifier(),
+        artist: track.artistsString(),
+        duration: duration
     )
     
     let options = UserDefaults.lyricsOptions
@@ -150,6 +155,8 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
         case .lrclib: LrcLibLyricsRepository()
         case .musixmatch: MusixmatchLyricsRepository.shared
         case .petit: PetitLyricsRepository()
+        case .qqmusic: QQMusicDataSource()
+        case .netease: NeteaseDataSource()
     }
     
     let lyricsDto: LyricsDto

@@ -7,8 +7,12 @@
 
 import Foundation
 
+struct PlainLyrics {
+    var content: String
+    var translation: String?
+}
 
-struct NeteaseDataSource {
+struct NeteaseDataSource: LyricsRepository {
     private let searchUrl = URL(string: "https://interface.music.163.com/api/cloudsearch/pc")!
     private let lyricUrl = URL(string: "https://music.163.com/api/song/lyric")!
     
@@ -175,8 +179,8 @@ struct NeteaseDataSource {
         throw LyricsError.NoSuchSong
     }
     
-    static func parseLyrics(_ plain: PlainLyrics) -> [LyricsLine] {
-        var lyricLines: [LyricsLine] = []
+    private func parseLyrics(_ plain: PlainLyrics) -> [LyricsLineDto] {
+        var lyricLines: [LyricsLineDto] = []
         let lines = plain
             .content
             .components(separatedBy: "\n")
@@ -185,16 +189,15 @@ struct NeteaseDataSource {
         
         // 检查是不是真的timeSynced
         var realSynced = true
-        if plain.timeSynced {
-            let match0 = plain.content.firstMatch(
-                "\\[(?<minute>\\d{2}):(?<seconds>\\d{2}\\.?\\d*).*\\] ?(?<content>.*)"
-            )
-            if match0 == nil {
-                realSynced = false
-            }
+        let match0 = plain.content.firstMatch(
+            "\\[(?<minute>\\d{2}):(?<seconds>\\d{2}\\.?\\d*).*\\] ?(?<content>.*)"
+        )
+        if match0 == nil {
+            realSynced = false
         }
+        
 
-        if plain.timeSynced && realSynced {
+        if realSynced {
 
             var translationDict = [String:String]()
             if UserDefaults.neteaseShowTranslation, let translation = plain.translation {
@@ -231,7 +234,7 @@ struct NeteaseDataSource {
 
             }
 
-            var lastOffset: Int32 = -1
+            var lastOffset = -1
             lyricLines = lines.map { line in
                 
                 let match = line.firstMatch(
@@ -257,27 +260,34 @@ struct NeteaseDataSource {
                 if UserDefaults.neteaseShowTranslation, plain.translation != nil, let translation = translationDict[timestamp] {
                     content = "\(content)\n\(translation)"
                 }
-                
                 // 解决网易云的没排序好的时间戳
-                var offset = Int32(minute * 60 * 1000 + Int(seconds * 1000))
+                var offset = minute * 60 * 1000 + Int(seconds * 1000)
                 if lastOffset >= offset {
                     offset = lastOffset + 1
                 }
                 lastOffset = offset
                 
-                return LyricsLine.with {
-                    $0.offsetMs = offset
-                    $0.content = content.lyricsNoteIfEmpty
-                }
+                return LyricsLineDto(content: content, offsetMs: offset)
             }
-
             return lyricLines
         }
 
         lyricLines = lines.map { line in
-            LyricsLine.with { $0.content = line }
+            LyricsLineDto(content: line)
         }
         
         return lyricLines
+    }
+    
+    func getLyrics(_ query: LyricsSearchQuery, options: LyricsOptions) throws -> LyricsDto {
+        let strippedTitle = query.title.strippedTrackTitle
+        
+        let song = try getSong(title: strippedTitle, artistsString: query.artist, duration: query.duration)
+        let lyric = try getLyric(song)
+
+        let plain = PlainLyrics(content: lyric.lrc.lyric, translation: lyric.tlyric?.lyric)
+        let parsedLyrics = parseLyrics(plain)
+        
+        return LyricsDto(lines: parsedLyrics, timeSynced: true, romanization: .original)
     }
 }

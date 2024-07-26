@@ -39,6 +39,9 @@ If the tweak is unable to find a song or process the lyrics, you'll see a "Could
                 if Locale.isInRegion("JP", orHasLanguage: "ja") {
                     Text("PetitLyrics").tag(LyricsSource.petit)
                 }
+                Text("Netease").tag(LyricsSource.netease)
+                Text("QQ Music").tag(LyricsSource.qqmusic)
+                
             }
 
             if lyricsSource == .musixmatch {
@@ -51,6 +54,16 @@ If the tweak is unable to find a song or process the lyrics, you'll see a "Could
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
+            if lyricsSource == .qqmusic || lyricsSource == .netease {
+                Toggle(
+                    "Simplified Chinese Translation",
+                    isOn: Binding<Bool>(
+                        get: { UserDefaults.neteaseShowTranslation },
+                        set: { UserDefaults.neteaseShowTranslation = $0 }
+                    )
+                )
             }
         }
         

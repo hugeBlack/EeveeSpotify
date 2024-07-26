@@ -7,6 +7,5 @@ import Foundation
     func trackTitle() -> String
     func artistTitle() -> String
     func URI() -> SPTURL
-    func metadata() -> [String:String]
     func artistsString() -> String
 }
