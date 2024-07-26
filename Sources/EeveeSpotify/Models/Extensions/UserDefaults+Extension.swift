@@ -13,6 +13,8 @@ extension UserDefaults {
     private static let overwriteConfigurationKey = "overwriteConfiguration"
     private static let neteaseShowTranslationKey = "neteaseShowTranslation"
     private static let lyricsColorsKey = "lyricsColors"
+    private static let lyricsOptionsKey = "lyricsOptions"
+    private static let hasShownCommonIssuesTipKey = "hasShownCommonIssuesTip"
 
     static var lyricsSource: LyricsSource {
         get {
@@ -25,6 +27,10 @@ extension UserDefaults {
                 
             }
 
+            if Locale.isInRegion("JP", orHasLanguage: "ja") {
+                return .petit
+            }
+            
             return .lrclib
         }
         set (newSource) {
@@ -47,6 +53,23 @@ extension UserDefaults {
         }
         set (fallback) {
             defaults.set(fallback, forKey: geniusFallbackKey)
+        }
+    }
+
+    static var lyricsOptions: LyricsOptions {
+        get {
+            if let data = defaults.object(forKey: lyricsOptionsKey) as? Data, 
+            let lyricsOptions = try? JSONDecoder().decode(LyricsOptions.self, from: data) {
+                return lyricsOptions
+            }
+            
+            return LyricsOptions(
+                romanization: false,
+                musixmatchLanguage: Locale.current.languageCode ?? ""
+            )
+        }
+        set (lyricsOptions) {
+            defaults.set(try! JSONEncoder().encode(lyricsOptions), forKey: lyricsOptionsKey)
         }
     }
     
@@ -87,6 +110,15 @@ extension UserDefaults {
         }
         set (overwriteConfiguration) {
             defaults.set(overwriteConfiguration, forKey: overwriteConfigurationKey)
+        }
+    }
+    
+    static var hasShownCommonIssuesTip: Bool {
+        get {
+            defaults.bool(forKey: hasShownCommonIssuesTipKey)
+        }
+        set (hasShownCommonIssuesTip) {
+            defaults.set(hasShownCommonIssuesTip, forKey: hasShownCommonIssuesTipKey)
         }
     }
     

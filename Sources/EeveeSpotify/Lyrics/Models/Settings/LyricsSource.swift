@@ -6,6 +6,7 @@ enum LyricsSource : Int, CustomStringConvertible {
     case musixmatch
     case netease
     case qqmusic
+    case petit
 
     var description : String { 
         switch self {
@@ -14,6 +15,7 @@ enum LyricsSource : Int, CustomStringConvertible {
         case .musixmatch: "Musixmatch"
         case .netease: "Netease"
         case .qqmusic: "QQMusic"
+        case .petit: "PetitLyrics"
         }
     }
 }
