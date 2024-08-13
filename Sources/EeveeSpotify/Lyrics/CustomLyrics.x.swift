@@ -2,14 +2,26 @@ import Orion
 import SwiftUI
 
 class SPTPlayerTrackHook: ClassHook<NSObject> {
-
     static let targetName = "SPTPlayerTrack"
 
     func metadata() -> [String:String] {
         var meta = orig.metadata()
-        
+
         meta["has_lyrics"] = "true"
         return meta
+    }
+}
+
+class LyricsScrollProviderHook: ClassHook<NSObject> {
+    
+    static var targetName: String {
+        return EeveeSpotify.isOldSpotifyVersion
+            ? "Lyrics_CoreImpl.ScrollProvider"
+            : "Lyrics_NPVCommunicatorImpl.ScrollProvider"
+    }
+    
+    func isEnabledForTrack(_ track: SPTPlayerTrack) -> Bool {
+        return true
     }
 }
 
@@ -25,9 +37,9 @@ class LyricsFullscreenViewControllerHook: ClassHook<UIViewController> {
         orig.viewDidLoad()
         
         if UserDefaults.lyricsSource == .musixmatch 
-            && lastLyricsError == nil
-            && !lastLyricsWasRomanized 
-            && !lastLyricsAreEmpty {
+            && lastLyricsState.fallbackError == nil
+            && !lastLyricsState.wasRomanized
+            && !lastLyricsState.areEmpty {
             return
         }
         
@@ -41,9 +53,8 @@ class LyricsFullscreenViewControllerHook: ClassHook<UIViewController> {
 
 //
 
-private var lastLyricsWasRomanized = false
-private var lastLyricsAreEmpty = false
-private var lastLyricsError: LyricsError? = nil
+private var preloadedLyrics: Lyrics? = nil
+private var lastLyricsState = LyricsLoadingState()
 
 private var hasShownRestrictedPopUp = false
 private var hasShownUnauthorizedPopUp = false
@@ -98,22 +109,22 @@ class LyricsOnlyViewControllerHook: ClassHook<UIViewController> {
         
         //
         
-        if UserDefaults.fallbackReasons, let description = lastLyricsError?.description {
+        if UserDefaults.fallbackReasons, let description = lastLyricsState.fallbackError?.description {
             text.append(
                 Dynamic.SPTEncoreAttributedString.alloc(interface: SPTEncoreAttributedString.self)
                     .initWithString(
-                        "\nFallback: \(description)",
+                        "\n\("fallback_attribute".localized): \(description)",
                         typeStyle: typeStyle,
                         attributes: attributes
                     )
             )
         }
         
-        if lastLyricsWasRomanized {
+        if lastLyricsState.wasRomanized {
             text.append(
                 Dynamic.SPTEncoreAttributedString.alloc(interface: SPTEncoreAttributedString.self)
                     .initWithString(
-                        "\nRomanized",
+                        "\n\("romanized_attribute".localized)",
                         typeStyle: typeStyle,
                         attributes: attributes
                     )
@@ -128,8 +139,9 @@ class LyricsOnlyViewControllerHook: ClassHook<UIViewController> {
     }
 }
 
-func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
-    
+//
+
+private func loadLyricsForCurrentTrack() throws {
     guard let track = HookedInstances.currentTrack else {
         throw LyricsError.NoCurrentTrack
     }
@@ -156,24 +168,23 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
     
     //
     
+    lastLyricsState = LyricsLoadingState()
+    
     do {
         lyricsDto = try repository.getLyrics(searchQuery, options: options)
-        lastLyricsError = nil
     }
-    
     catch let error {
         if let error = error as? LyricsError {
-            lastLyricsError = error
+            lastLyricsState.fallbackError = error
             
             switch error {
                 
             case .InvalidMusixmatchToken:
                 
                 if !hasShownUnauthorizedPopUp {
-                    
                     PopUpHelper.showPopUp(
                         delayed: false,
-                        message: "The tweak is unable to load lyrics from Musixmatch due to Unauthorized error. Please check or update your Musixmatch token. If you use an iPad, you should get the token from the Musixmatch app for iPad.",
+                        message: "musixmatch_unauthorized_popup".localized,
                         buttonText: "OK"
                     )
                     
@@ -183,10 +194,9 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
             case .MusixmatchRestricted:
                 
                 if !hasShownRestrictedPopUp {
-                    
                     PopUpHelper.showPopUp(
                         delayed: false,
-                        message: "The tweak is unable to load lyrics from Musixmatch because they are restricted. It's likely a copyright issue due to the US IP address, so you should change it if you're in the US or use a VPN.",
+                        message: "musixmatch_restricted_popup".localized,
                         buttonText: "OK"
                     )
                     
@@ -198,7 +208,7 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
             }
         }
         else {
-            lastLyricsError = .UnknownError
+            lastLyricsState.fallbackError = .UnknownError
         }
         
         if source == .genius || !UserDefaults.geniusFallback {
@@ -213,25 +223,43 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
         lyricsDto = try repository.getLyrics(searchQuery, options: options)
     }
     
-    lastLyricsWasRomanized = lyricsDto.romanization == .romanized 
-        || (lyricsDto.romanization == .canBeRomanized && UserDefaults.lyricsOptions.romanization)
-    lastLyricsAreEmpty = lyricsDto.lines.isEmpty
+    lastLyricsState.areEmpty = lyricsDto.lines.isEmpty
+    
+    lastLyricsState.wasRomanized = lyricsDto.romanization == .romanized
+    || (lyricsDto.romanization == .canBeRomanized && UserDefaults.lyricsOptions.romanization)
+    
+    lastLyricsState.loadedSuccessfully = true
 
     let lyrics = Lyrics.with {
-        $0.colors = getLyricsColors()
         $0.data = lyricsDto.toLyricsData(source: source.description)
     }
-
-    return try lyrics.serializedData()
     
-    func getLyricsColors() -> LyricsColors {
-        let lyricsColorsSettings = UserDefaults.lyricsColors
-        
-        if lyricsColorsSettings.displayOriginalColors, let originalLyrics = originalLyrics {
-            return originalLyrics.colors
-        }
-        
-        return LyricsColors.with {
+    preloadedLyrics = lyrics
+}
+
+func getLyricsForCurrentTrack(originalLyrics: Lyrics? = nil) throws -> Data {
+    guard let track = HookedInstances.currentTrack else {
+        throw LyricsError.NoCurrentTrack
+    }
+    
+    var lyrics = preloadedLyrics
+    
+    if lyrics == nil {
+        try loadLyricsForCurrentTrack()
+        lyrics = preloadedLyrics
+    }
+    
+    guard var lyrics = lyrics else {
+        throw LyricsError.UnknownError
+    }
+    
+    let lyricsColorsSettings = UserDefaults.lyricsColors
+    
+    if lyricsColorsSettings.displayOriginalColors, let originalLyrics = originalLyrics {
+        lyrics.colors = originalLyrics.colors
+    }
+    else {
+        lyrics.colors = LyricsColors.with {
             $0.backgroundColor = lyricsColorsSettings.useStaticColor
                 ? Color(hex: lyricsColorsSettings.staticColor).uInt32
                 : Color(hex: track.extractedColorHex())
@@ -241,4 +269,7 @@ func getCurrentTrackLyricsData(originalLyrics: Lyrics? = nil) throws -> Data {
             $0.activeLineColor = Color.white.uInt32
         }
     }
+    
+    preloadedLyrics = nil
+    return try lyrics.serializedData()
 }
